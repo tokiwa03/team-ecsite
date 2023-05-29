@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+<meta charset="UTF-8" />
+
+<link href="/css/reset.css" th:href="@{/css/reset.css}" rel="stylesheet" />
+<link href="/css/style.css" th:href="@{/css/style.css}" rel="stylesheet" />
+<title>VALHALLA STORE</title>
+</head>
+<body>
+
+<header th:insert="fragments/page_header::pageHeader"></header>
+
+<main>
+
+  <div class="container cart">
+    <h2>カート</h2>
+  
+    <div class="noData" th:if="${carts == null || carts.size() == 0}">
+      <p class="info">カート情報はありません。</p>
+    </div>
+    
+    <table class="cart" th:if="${carts != null && carts.size() > 0}">
+      <tr>
+        <th>選択</th><th>画像</th><th>商品名</th><th>価格(円)</th><th>個数</th><th>小計(円)</th>
+      </tr>
+      <tr th:each="cart: ${carts}">
+        <td><input type="checkbox" name="id" class="checkList" th:value="${cart.id}"/></td>
+        <td><img class="itemImage" th:src="${cart.imageFullPath}" /></td>
+        <td th:text="${cart.productName}" />
+        <td class="number" th:text="${cart.price}" />
+        <td class="productCount number" th:text="${cart.productCount}" />
+        <td class="subtotal number" th:text="${cart.subtotal}" />
+      </tr>
+      <tr>
+        <td class="totalArea"></td>
+        <td class="totalArea"></td>
+        <td class="totalArea">合計(円)</td>
+        <td class="totalArea"></td>
+        <td class="totalArea" id="totalCount"></td>
+        <td class="totalArea" id="totalPrice"></td>
+      </tr>
+    </table>
+    <div class="buttonArea" th:if="${carts != null && carts.size() > 0}">
+      <button id="deleteButton" disabled>削除</button>
+      <form action="/valhalla/settlement/">
+        <button type="submit" id="settlementButton">購入</button>
+      </form>
+    </div>
+  
+  </div>
+
+</main>
+<script  th:inline="javascript">
+/*<![CDATA[*/
+/*
+ * 画面表示時 (onLoad) に動作する処理群
+ */
+document.addEventListener("DOMContentLoaded", event => {
+  
+  // カート情報がない場合はロード時の処理はないので return する
+  const noDataElement = document.querySelector(".noData");
+  if (noDataElement != null) return;
+  
+  // 購入個数と金額の合計を算出し、合計欄に設定する
+  calcTotalArea();
+  
+  document.getElementById("deleteButton").addEventListener("click", () => {
+    const checkedList = document.querySelectorAll(".checkList:checked");
+    let checkedIdList = []; // チェックされたチェックボックスのValueを入れるリスト
+    for (checked of checkedList) {
+      checkedIdList.push(checked.value);
+    }
+    // カートの削除
+    deleteCart(checkedList, checkedIdList);
+
+  });
+
+  const checkBoxList = document.querySelectorAll(".checkList");
+  // checkBoxList をループさせ、イベントリスナーを登録する
+  checkBoxList.forEach((checkBox) => {
+    checkBox.addEventListener("change", changeDisable);
+  });
+  
+  document.getElementById("settlementButton").addEventListener("click", event => {
+    const userId = /*[[${loginSession.getUserId()}]]*/ 0;  // Thymeleafから値を取得
+    const hiddenUserName = document.getElementById("hiddenUserName").value;
+    if (userId == 0 && util.isEmpty(hiddenUserName)) {
+      alert("ログインしてください。");
+      event.preventDefault();
+    }
+  });
+  
+});
+
+/**
+ * 選択されたカート情報を削除する。
+ * @param checkedList:選択されたチェックボックスのリスト、checkedIdList:選択されたチェックボックスの値のリスト
+ * @returns なし
+ */
+function deleteCart(checkedList, checkedIdList) {
+  // JavaにPOST送信するオブジェクトを取得・設定する
+  const postObj = {　"checkedIdList": checkedIdList　};
+  
+  /*
+   * fetch API を使用し、Javaと非同期通信(POST)を行う
+   * SUCCESS時(then)： 通信結果に応じてボタン、ユーザー名ボックスの使用可否状態、、OKメッセージの表示/非表示を切り替える
+   *　ERROR時(catch)： エラー情報を console に出力する
+   */
+  fetch("/valhalla/cart/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(postObj),
+  })
+  .then(response =>  response.text())
+  .then(result => {
+    for (checked of checkedList) {
+      const tr = checked.parentElement.parentElement;
+      while(tr.lastChild){
+        tr.removeChild(tr.lastChild);
+      }
+    }
+    
+    let checkList = document.querySelectorAll(".checkList");
+    if (checkList.length == 0) {
+      location.replace("/valhalla/cart/");
+    }
+    
+    // 購入個数と金額の合計を算出し、合計欄に設定する
+    calcTotalArea();
+    // 削除ボタン非活性
+    changeDisable();
+  })
+  .catch(error => {
+    console.error("Error: ", error);
+  });
+}
+
+/**
+ * 削除ボタンの活性非活性を変更する。
+ * @param チェックボックスが選択された際のevent
+ * @returns なし
+ */
+function changeDisable(event) {
+  const checkboxes = document.querySelectorAll('input[type="checkbox"]:checked');
+  const deleteButton = document.querySelector('#deleteButton');
+  
+  if (checkboxes.length > 0) {
+    deleteButton.disabled = false;
+  } else {
+    deleteButton.disabled = true;
+  }
+}
+
+/**
+ * 合計個数、合計金額を計算して対象要素に表示する。
+ * @param なし
+ * @returns なし
+ */
+function calcTotalArea() {
+  let subtotalList = document.querySelectorAll(".subtotal");
+  let countList = document.querySelectorAll(".productCount");
+  let totalPrice = 0;
+  let totalCount = 0;
+  
+  for (let i = 0; i < subtotalList.length; i ++) {
+    totalPrice += parseInt((subtotalList[i]).innerText);
+    totalCount += parseInt((countList[i]).innerText);
+  }
+
+  document.getElementById("totalPrice").innerText = totalPrice;
+  document.getElementById("totalCount").innerText = totalCount;
+}
+/*]]>*/
+</script>
+
+</body>
+</html>
